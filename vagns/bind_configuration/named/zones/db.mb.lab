@@ -1,0 +1,16 @@
+@       IN      SOA     vagns.mb.lab. admin.mb.lab. (
+                              3         ; Serial
+             604800     ; Refresh
+              86400     ; Retry
+            2419200     ; Expire
+             604800 )   ; Negative Cache TTL
+
+; name servers - NS records
+    IN      NS      vagns.mb.lab.
+
+; name servers - A records
+vagns.mb.lab.         IN      A      192.168.99.10
+
+; 192.168.0.0/16 - A records
+vagui.mb.lab.         IN      A      192.168.99.95
+vaghln.mb.lab.        IN      A      192.168.99.97

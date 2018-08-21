@@ -1,0 +1,30 @@
+----
+Creating base box:
+
+vagml:
+vagrant package --base oel74tpl --output oel7ui.box
+
+vaghl:
+vagrant package --base oel74mintpl --output oel7hl.box
+
+----
+Testing box:
+
+vagrant box add --name vagml ..\base-boxes\oel7ui.box
+vagrant init vagml
+vagrant up
+
+vagrant box add --name vaghl ..\base-boxes\oel7hl.box
+vagrant init vaghl
+vagrant up
+
+----
+Cleaning up a box:
+
+vagrant halt
+vagrant destroy
+vagrant box remove vagml
+
+vagrant halt
+vagrant destroy
+vagrant box remove vaghl

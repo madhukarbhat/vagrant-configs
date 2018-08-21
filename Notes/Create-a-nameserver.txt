@@ -1,0 +1,245 @@
+Configuring Nameserver
+-----------------------------
+
+Resources:
+
+https://www.digitalocean.com/community/tutorials/how-to-configure-bind-as-a-private-network-dns-server-on-centos-7
+
+https://docs.oracle.com/cd/E52668_01/E54669/html/ol7-s5-namesvc.html
+
+Condifuration Data:
+
+Hostname: vagns.mb.lab
+Domain: mb.lab
+Nameserver IP: 192.168.99.10/24
+
+Steps:
+
+* yum -y install bind bind-utils
+
+------------------------------------------------
+Editing /etc/named.conf:
+------------------------------------------------
+
+* Edit /etc/named.conf: Above the existing options block, create a new
+  ACL block called "trusted". This is where we will define list of
+  clients that we will allow recursive DNS queries from (i.e. your
+  servers that are in the same datacenter as vagns). Using our example
+  private IP addresses, we will add vagns, vagml, and vaghln to our
+  list of trusted clients:
+
+acl "trusted" {
+        192.168.99.10;  # vagns - can be set to localhost
+        192.168.99.95;  # vagui
+        192.168.99.97;  # vaghln
+};
+
+
+* Add the private IP address of _vagns_ to the listen-on port 53
+  directive, and comment out the listen-on-v6 line:
+
+options {
+        listen-on port 53 { 127.0.0.1; 192.168.99.10; };
+#        listen-on-v6 port 53 { ::1; };
+...
+
+* Change allow-query directive from "localhost" to "trusted":
+
+allow-query { trusted; }; # allows queries from "trusted" clients
+
+* At the end of the file, add the following line:
+
+include "/etc/named/named.conf.local";
+
+------------------------------------------------
+Create and edit /etc/named/named.conf.local:
+------------------------------------------------
+
+* Define slave zones that correspond to the master zones on the
+  primary DNS server. Note that the type is "slave", the file does not
+  contain a path, and there is a masters directive which should be set
+  to the primary DNS server's private IP. If you defined multiple
+  reverse zones in the primary DNS server, make sure to add them all
+  here:
+
+zone "mb.lab" {
+    type master;
+    file "/etc/named/zones/db.mb.lab"; # zone file path
+};
+
+zone "168.192.in-addr.arpa" {
+    type master;
+    file "/etc/named/zones/db.192.168";  # 192.168.0.0/16 subnet
+};
+
+* Run the following command to check the validity of your
+  configuration files:
+
+# named-checkconf
+
+------------------------------------------------
+Create Forward Zone File:
+------------------------------------------------
+
+* create the directory where our zone files will reside. According to
+  our named.conf.local configuration, that location should be
+  /etc/named/zones
+
+* Edit file - /etc/named/zones/db.mb.lab
+
+* First, add the SOA record.  Every time you edit a zone file, you
+  should increment the serial value before you restart the named
+  process - we will increment it to "3". It should look something like
+  this:
+
+@       IN      SOA     vagns.mb.lab. admin.mb.lab. (
+                              3         ; Serial
+             604800     ; Refresh
+              86400     ; Retry
+            2419200     ; Expire
+             604800 )   ; Negative Cache TTL
+
+* After that, add your nameserver records with the following
+  lines. Note that the second column specifies that these are "NS"
+  records:
+
+; name servers - NS records
+    IN      NS      vagns.mb.lab.
+
+* Then add the A records for your hosts that belong in this zone. This
+  includes any server whose name we want to end with "mb.lab".  Using
+  our example names and private IP addresses, we will add A records
+  for vagns, vagui, and vaghln like so:
+
+; name servers - A records
+vagns.mb.lab.         IN      A      192.168.99.10
+
+; 192.168.0.0/16 - A records
+vagui.mb.lab.         IN      A      192.168.99.101
+vaghln.mb.lab.        IN      A      192.168.99.102
+
+------------------------------------------------
+Create Reverse Zone File(s):
+------------------------------------------------
+
+* Edit file - /etc/named/zones/db.192.168
+
+* First, add the SOA record. Every time you edit a zone file, you
+  should increment the serial value before you restart the named
+  process--we will increment it to "3". It should look something like
+  this:
+
+@       IN      SOA     vagns.mb.lab. admin.mb.lab. (
+                              3         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+
+* After that, add your nameserver records with the following
+  lines. Note that the second column specifies that these are "NS"
+  records:
+
+; name servers - NS records
+      IN      NS      vagns.mb.lab.
+
+* Then add PTR records for all of your servers whose IP addresses are
+  on the subnet of the zone file that you are editing. In our example,
+  this includes all of our hosts because they are all on the
+  192.168.0.0/16 subnet. Note that the first column consists of the
+  last two octets of your servers' private IP addresses in reversed
+  order.
+
+; PTR Records
+10.99   IN      PTR     vagns.mb.lab.    ; 192.168.99.10
+95.99   IN      PTR     vagui.mb.lab.    ; 192.168.99.95
+97.99   IN      PTR     vaghln.mb.lab.   ; 192.168.99.97
+
+------------------------------------------------
+Start BIND
+------------------------------------------------
+
+* Start BIND with following command as root:
+
+systemctl start named
+
+* Now, enable it. It will start on boot:
+
+systemctl enable named
+
+
+------------------------------------------------
+Configure DNS Clients:
+------------------------------------------------
+
+* Execute the following to /etc/sysconfig/network-scripts/ifcfg-eth1
+echo 'DOMAIN=mb.lab' >> /etc/sysconfig/network-scripts/ifcfg-eth1
+echo 'DNS1=192.168.99.10' >> /etc/sysconfig/network-scripts/ifcfg-eth1
+
+* Edit or create /etc/dhcp/dhclient.conf to add the following line:
+
+prepend domain-name-servers 192.168.99.10;
+
+~~~~
+[root@vagns vagrant]# cat /etc/dhcp/dhclient.conf
+prepend domain-name-servers 192.168.99.10;
+[root@vagns vagrant]#
+~~~~
+
+* Restart the NetworkManager to update /etc/resolv.conf:
+
+systemctl restart network
+
+------------------------------------------------
+Testing BIND configuration:
+------------------------------------------------
+
+
+[vagrant@vagns ~]$ nslookup vagui
+Server:         192.168.99.10
+Address:        192.168.99.10#53
+
+Name:   vagui.mb.lab
+Address: 192.168.99.95
+
+[vagrant@vagns ~]$ nslookup 192.168.99.97
+Server:         192.168.99.10
+Address:        192.168.99.10#53
+
+97.99.168.192.in-addr.arpa      name = vaghln.mb.lab.
+
+[vagrant@vagns ~]$
+
+------------------------------------------------
+Configure firewall to allow DNS Query:
+------------------------------------------------
+
+
+firewall-cmd --zone=public --add-port=53/tcp --add-port=53/udp
+firewall-cmd --permanent --zone=public --add-port=53/tcp --add-port=53/udp
+
+------------------------------------------------
+Adding Host to DNS:
+------------------------------------------------
+
+Primary Nameserver:
+
+* Forward zone file: Add an "A" record for the new host, increment the
+  value of "Serial"
+
+* Reverse zone file: Add a "PTR" record for the new host, increment
+  the value of "Serial"
+
+* Add your new host's private IP address to the "trusted" ACL
+  (named.conf.options)
+
+* Then reload BIND:
+
+sudo systemctl reload named
+
+* Configure New Host to Use Your DNS. Add DOMAIN and DNS1 key value
+  pair to /etc/sysconfig/network-scripts/ifcfg-<interface> file for
+  NetworkManager. This will allow NetworkManager to configure
+  resolv.conf to use your DNS servers.
+
+* Test using nslookup
